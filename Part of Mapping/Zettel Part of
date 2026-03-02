@@ -1,0 +1,88 @@
+import os
+import re
+
+# --- Configuration ---
+TARGET_DIR = "/Volumes/ObsidianSync/My Vault/Zettel"
+DRY_RUN = False  # Set to False to apply changes to your vault
+
+def transform_front_matter(content):
+    """
+    Logic:
+    1. Identify the 'kind' value in the YAML.
+    2. Map 'kind' to the new 'part_of' destination.
+    3. Clear 'status: Needs review' if present.
+    """
+    # isolate the front matter block
+    fm_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+    if not fm_match:
+        return content
+
+    original_fm = fm_match.group(1)
+    body = content[fm_match.end():]
+    
+    # 1. Extract 'kind' value (handles optional quotes and trailing spaces)
+    kind_match = re.search(r'^kind:\s*["\']?(\w+)["\']?\s*$', original_fm, re.MULTILINE)
+    
+    if not kind_match:
+        return content # No 'kind' found, skipping file
+    
+    kind_value = kind_match.group(1)
+    
+    # 2. The New Mapping Table
+    mapping = {
+        "Literature": "[[Literature Notes]]",
+        "Fleeting":   "[[Fleeting Notes]]",
+        "Permanent":  "[[Permanent Notes]]"
+    }
+    
+    if kind_value not in mapping:
+        return content # Kind doesn't match our specific targets, skipping
+
+    new_part_of_value = mapping[kind_value]
+    updated_fm = original_fm
+
+    # 3. Apply the replacements
+    # This regex finds 'part_of: ...' and replaces the whole line
+    updated_fm = re.sub(
+        r'^part_of:.*$', 
+        f'part_of: "{new_part_of_value}"', 
+        updated_fm, 
+        flags=re.MULTILINE
+    )
+    
+    # Also clear the status if it matches "Needs review"
+    updated_fm = updated_fm.replace("status: Needs review", "status: ")
+
+    return f"---\n{updated_fm}\n---\n{body}"
+
+def process_files():
+    count = 0
+    mode_label = "DRY RUN (No changes)" if DRY_RUN else "LIVE UPDATE"
+    print(f"--- {mode_label} ---")
+
+    for root, _, files in os.walk(TARGET_DIR):
+        for file in files:
+            if file.endswith(".md"):
+                file_path = os.path.join(root, file)
+                
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    new_content = transform_front_matter(content)
+                    
+                    if new_content != content:
+                        if DRY_RUN:
+                            print(f"[WILL UPDATE] {file}")
+                        else:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(new_content)
+                            print(f"[UPDATED] {file}")
+                        count += 1
+                except Exception as e:
+                    print(f"[ERROR] {file}: {e}")
+                    
+    print(f"\nFinished. Total files processed: {count}")
+
+if __name__ == "__main__":
+    process_files()

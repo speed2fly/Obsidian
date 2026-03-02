@@ -1,0 +1,99 @@
+import os
+from pathlib import Path
+
+# --- CONFIGURATION ---
+VAULT_PATH = Path("/Volumes/ObsidianSync/Logs Vault")
+INBOX_PATH = VAULT_PATH / "01 - Filer"
+
+# MODE SETTING: "BATCH" for 2012-2026, "SINGLE" for maintenance
+RUN_MODE = "BATCH" 
+TARGET_YEAR = "2026"
+BATCH_START = 2012
+BATCH_END = 2026
+
+# CATEGORY LIST (Standardized Kinds)
+LOG_KINDS = [
+    "3D Printing", "Creator", "Family", "House", "Overlander", 
+    "Personal", "Red Cross", "Stoic", "TimOS", "DailyScore"
+]
+
+def get_years_to_process():
+    if RUN_MODE == "BATCH":
+        return [str(y) for y in range(BATCH_START, BATCH_END + 1)]
+    return [str(TARGET_YEAR)]
+
+def get_nexus_name(kind, year=None):
+    if kind == "DailyScore":
+        return f"{year} - Daily Scores.md" if year else "Daily Scores.md"
+    if kind == "DailyItinerary":
+        return f"{year} - Daily Itineraries.md" if year else "Daily Itineraries.md"
+    return f"{year} {kind} Log Entries.md" if year else f"{kind} Log Entries.md"
+
+def generate_content(kind, year=None, is_origin=False, active_years=None):
+    date_val = f"{year if year else '2026'}-01-01"
+    
+    # Tier 1: Origins (Logs.md)
+    if is_origin:
+        title = "Daily Itineraries" if kind == "DailyItinerary" else "Logs"
+        all_cats = LOG_KINDS + ["DailyItinerary"]
+        links = "## Categories\n" + "\n".join([f"* [[{get_nexus_name(k).replace('.md', '')}]]" for k in all_cats])
+        return f"---\ndate_created: {date_val}\ndomain: Personal\ntype: [Nexus, Log Entry]\nkind: System\n---\n# {title}\n\n{links}"
+
+    # Tier 2: Category Roots
+    if not year:
+        title = "Daily Itineraries" if kind == "DailyItinerary" else ("Daily Scores" if kind == "DailyScore" else f"{kind} Log Entries")
+        year_links = "\n".join([f"* [[{get_nexus_name(kind, y).replace('.md', '')}]]" for y in active_years])
+        return f"---\ndate_created: {date_val}\ndomain: Personal\ntype: [Nexus, Log Entry]\nkind: {kind}\n---\n# {title}\n\n## Parent\n* [[Logs]]\n\n## Years\n{year_links}"
+
+    # Tier 3: Yearly Hubs (With VS Code Markers)
+    parent_name = get_nexus_name(kind).replace('.md', '')
+    if kind == "DailyScore": display = f"{year} Daily Scores"
+    elif kind == "DailyItinerary": display = f"{year} Daily Itineraries"
+    else: display = f"{year} {kind} Log Entries"
+
+    return f"""---
+date_created: {date_val}
+domain: Personal
+type: [Nexus, Log Entry]
+kind: {kind}
+---
+# {display}
+
+## Parent
+* [[{parent_name}]]
+
+---
+
+## ✨ Highlights
+DV_QUERY_ONE
+
+## 📅 Yearly Log Index
+DV_QUERY_TWO
+"""
+
+def create_files():
+    years = get_years_to_process()
+    print(f"--- Nexus Generator v4.3 (Mode: {RUN_MODE}) ---")
+    INBOX_PATH.mkdir(parents=True, exist_ok=True)
+    
+    count = 0
+    # 1. Origins
+    for origin in ["Logs", "DailyItinerary"]:
+        name = "Logs.md" if origin == "Logs" else "Daily Itineraries.md"
+        (INBOX_PATH / name).write_text(generate_content(origin, is_origin=True), encoding='utf-8')
+        count += 1
+
+    # 2. Category and Yearly Hubs
+    for kind in LOG_KINDS + ["DailyItinerary"]:
+        # Category Root
+        (INBOX_PATH / get_nexus_name(kind)).write_text(generate_content(kind, active_years=years), encoding='utf-8')
+        count += 1
+        # Yearly Hubs
+        for year in years:
+            (INBOX_PATH / get_nexus_name(kind, year)).write_text(generate_content(kind, year), encoding='utf-8')
+            count += 1
+
+    print(f"\nGenerated {count} files in {INBOX_PATH}.")
+
+if __name__ == "__main__":
+    create_files()
